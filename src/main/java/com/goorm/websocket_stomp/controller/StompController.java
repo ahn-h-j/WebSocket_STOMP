@@ -6,15 +6,18 @@ import com.goorm.websocket_stomp.dto.ResSessionsDto;
 import com.goorm.websocket_stomp.listener.StompEventListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.MessageHeaders;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.SendTo;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
+import org.springframework.messaging.simp.SimpMessageType;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.stereotype.Controller;
 
 import java.time.LocalDateTime;
-import java.util.EventListener;
 import java.util.Set;
 
 @Slf4j
@@ -23,6 +26,7 @@ import java.util.Set;
 public class StompController {
 
     private final StompEventListener stompEventListener;
+    private final SimpMessagingTemplate simpMessagingTemplate;
 
     //여러 값을 받을 수 있음
     @MessageMapping("/hello")//수신 == /app/hello
@@ -56,5 +60,37 @@ public class StompController {
         Set<String> sessions = stompEventListener.getSessions();
 
         return new ResSessionsDto(sessions.size(), sessions.stream().toList(), sessionId, LocalDateTime.now());
+    }
+
+    @MessageMapping("/codeSendTo")//수신 == /app/codeSendTo
+    public void codeSendTo(ReqDto reqDto){
+
+        log.info("reqDto : {}", reqDto);
+
+        ResDto resDto = new ResDto(reqDto.getMessage().toUpperCase(), LocalDateTime.now());
+
+        simpMessagingTemplate.convertAndSend("/topic/hello", resDto);
+
+    }
+    @MessageMapping("/codeSendToUser")
+    public void code2(ReqDto reqDto, MessageHeaders messageHeaders) {
+        log.info("reqDto : {}", reqDto);
+        String sessionId = messageHeaders.get("simpSessionId").toString();
+        log.info("in sessionId: {}", sessionId);
+        Set<String> sessions = stompEventListener.getSessions();
+
+        ResSessionsDto resSessionsDto =  new ResSessionsDto(sessions.size(), sessions.stream().toList(), sessionId, LocalDateTime.now());
+
+        simpMessagingTemplate.convertAndSendToUser(sessionId,"/queue/sessions",resSessionsDto,createHeaders(sessionId));//user/queue/sessions
+    }
+
+    private MessageHeaders createHeaders(@Nullable String sessionId) {
+        SimpMessageHeaderAccessor headerAccessor = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
+
+        if (sessionId != null) {
+            headerAccessor.setSessionId(sessionId);
+        }
+        headerAccessor.setLeaveMutable(true);
+        return headerAccessor.getMessageHeaders();
     }
 }
