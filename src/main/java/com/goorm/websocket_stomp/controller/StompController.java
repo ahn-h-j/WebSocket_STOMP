@@ -15,18 +15,26 @@ import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.annotation.SendToUser;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Controller;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
 
 @Slf4j
 @Controller
 @RequiredArgsConstructor
 public class StompController {
 
+    private final TaskScheduler taskScheduler;
     private final StompEventListener stompEventListener;
     private final SimpMessagingTemplate simpMessagingTemplate;
+
+    private final ConcurrentHashMap<String, ScheduledFuture<?>> sessionMap = new ConcurrentHashMap<>();
 
     //여러 값을 받을 수 있음
     @MessageMapping("/hello")//수신 == /app/hello
@@ -92,5 +100,35 @@ public class StompController {
         }
         headerAccessor.setLeaveMutable(true);
         return headerAccessor.getMessageHeaders();
+    }
+
+    @MessageMapping("/start")
+    public void start(ReqDto reqDto, MessageHeaders headers){
+
+        log.info("header : {}", headers);
+        String sessionId = headers.get("simpSessionId").toString();
+        log.info("in sessionId: {}", sessionId);
+
+        ScheduledFuture<?> scheduledFuture = taskScheduler.scheduleAtFixedRate(() -> {
+            Random random = new Random();
+
+            int currentPrice = random.nextInt(100);
+
+            simpMessagingTemplate.convertAndSendToUser(sessionId,"/queue/trade", currentPrice, createHeaders(sessionId));//user/queue/sessions
+
+        }, Duration.ofSeconds(3));
+        sessionMap.put(sessionId, scheduledFuture);
+    }
+
+    @MessageMapping("/stop")
+    public void stop(ReqDto reqDto, MessageHeaders headers){
+
+        log.info("header : {}", headers);
+        String sessionId = headers.get("simpSessionId").toString();
+        log.info("in sessionId: {}", sessionId);
+
+        ScheduledFuture<?> removeTarget = sessionMap.remove(sessionId);
+        removeTarget.cancel(true);
+
     }
 }
